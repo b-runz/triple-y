@@ -1,12 +1,24 @@
 import logging
 import azure.functions as func
 import tempfile
+import time
 from os import listdir
+from azurefunctions.extensions.http.fastapi import Request, StreamingResponse
 
-app = func.FunctionApp()
+app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
+
+def generate_temp_file_data(file_path: str):
+    """Generate real-time streaming data from a temporary file."""
+    try:
+        with open(file_path, 'rb') as temp_file:
+            chunk_size = 1024 * 1024  # 1MB chunks
+            while chunk := temp_file.read(chunk_size):
+                yield chunk
+    except Exception as e:
+        yield f"data: Error occurred while reading file: {str(e)}\n\n"
 
 @app.route(route="TmpFSCheck", auth_level=func.AuthLevel.ANONYMOUS)
-def TmpFSCheck(req: func.HttpRequest) -> func.HttpResponse:
+async def TmpFSCheck(req: Request) -> StreamingResponse:
     logging.info('Python HTTP trigger function processed a request.')
 
     try:
@@ -17,16 +29,8 @@ def TmpFSCheck(req: func.HttpRequest) -> func.HttpResponse:
             temp_file.write(data_chunk)
         temp_file.close()
 
-        temp_dir = tempfile.gettempdir()
-        files_in_temp = listdir(temp_dir)
-
-        response_message = (
-            f"Temporary file created: {temp_file.name}\n"
-            f"Size: 1GB\n"
-            f"Files in temp directory: {files_in_temp}"
-        )
-
-        return func.HttpResponse(response_message, status_code=200)
+        # Streaming file content to the client
+        return StreamingResponse(generate_temp_file_data(temp_file.name), media_type="application/octet-stream")
 
     except Exception as e:
         logging.error(f"An error occurred: {e}")
